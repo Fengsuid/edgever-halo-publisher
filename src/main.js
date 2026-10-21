@@ -1194,7 +1194,6 @@ const mountPanel = (context, container) => {
           await context.settings.remove(SETTING_KEYS.haloUrl).catch(() => undefined);
           await context.settings.remove(SETTING_KEYS.token).catch(() => undefined);
           setupStatus.textContent = "已写入共享配置笔记，之后所有设备会自动读取";
-          context.ui.showNotice("配置已保存到《Halo 发布配置》笔记，并会同步到所有设备");
         } catch (error) {
           setupStatus.textContent = `共享配置保存失败：${error.message || error}（已改为仅保存到本设备）`;
           await context.settings.set(SETTING_KEYS.haloUrl, baseUrl);
@@ -1205,7 +1204,6 @@ const mountPanel = (context, container) => {
         await context.settings.set(SETTING_KEYS.haloUrl, baseUrl);
         await context.settings.set(SETTING_KEYS.token, rawToken);
         setupStatus.textContent = "已保存到本设备（其它设备仍需各自配置）";
-        context.ui.showNotice("Halo 连接已保存到本设备");
       }
       await applyConnectedState(client, baseUrl, rawToken, target === "note" ? "note" : "local");
       setupSourceHint.textContent = target === "note"
