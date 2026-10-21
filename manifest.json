@@ -2,14 +2,14 @@
   "type": "plugin",
   "id": "com.twisterfeng.edgeever.halo-publisher",
   "name": "Halo 博客发布",
-  "version": "1.1.1",
+  "version": "1.1.2",
   "apiVersion": "2",
   "settingsUi": "host",
-  "description": "把 EdgeEver 笔记一键发布或更新到 Halo 2 博客：支持草稿/直接发布、分类、标签、图片自动上传、发布映射记录，并可把连接配置保存为一篇工作区笔记，随服务器同步到所有设备。",
+  "description": "把 EdgeEver 笔记一键发布或更新到 Halo 2 博客：支持草稿/直接发布、分类、标签、图片自动上传、发布映射跨设备同步，并可把连接配置保存为一篇工作区笔记，随服务器同步到所有设备。",
   "locales": {
     "zh-CN": {
       "name": "Halo 博客发布",
-      "description": "把 EdgeEver 笔记一键发布或更新到 Halo 2 博客：支持草稿/直接发布、分类、标签、图片自动上传、发布映射记录，并可把连接配置保存为一篇工作区笔记，随服务器同步到所有设备。"
+      "description": "把 EdgeEver 笔记一键发布或更新到 Halo 2 博客：支持草稿/直接发布、分类、标签、图片自动上传、发布映射跨设备同步，并可把连接配置保存为一篇工作区笔记，随服务器同步到所有设备。"
     },
     "en-US": {
       "name": "Halo Publisher",

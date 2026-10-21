@@ -31,6 +31,7 @@ const SETTING_DEFAULTS = {
 };
 
 const CONFIG_NOTE_TITLE = "Halo 发布配置";
+const MAPPING_NOTE_TITLE = "Halo 发布记录";
 const CONFIG_NOTE_TAGS = ["edgeever-config"];
 
 const STORAGE_KEYS = {
@@ -414,6 +415,66 @@ const saveSharedConfig = async (context, { haloUrl, token }) => {
   return created.id;
 };
 
+const renderSharedMappingsMarkdown = (mappings) => [
+  "# Halo 发布记录",
+  "",
+  "> 由 EdgeEver「Halo 博客发布」插件自动维护，用于在多设备之间同步“笔记 ↔ Halo 文章”的对应关系。",
+  "> 请勿手动修改这篇笔记。",
+  "",
+  "```json",
+  JSON.stringify({ version: 1, mappings }, null, 2),
+  "```",
+  "",
+].join("\n");
+
+const parseSharedMappings = (markdown) => {
+  const match = String(markdown || "").match(/```json\s*([\s\S]*?)```/);
+  if (!match) return {};
+  try {
+    const parsed = JSON.parse(match[1]);
+    return parsed && typeof parsed.mappings === "object" && parsed.mappings ? parsed.mappings : {};
+  } catch {
+    return {};
+  }
+};
+
+const findMappingNote = async (context) => {
+  try {
+    const result = await context.notes.query({ text: MAPPING_NOTE_TITLE, limit: 10 });
+    const notes = (result && result.notes) || [];
+    const matched = notes.find((note) => String(note.title || "").trim() === MAPPING_NOTE_TITLE);
+    if (!matched) return null;
+    const note = await context.notes.get(matched.id);
+    return { note, mappings: parseSharedMappings(note.contentMarkdown) };
+  } catch {
+    return null;
+  }
+};
+
+const readSharedMappings = async (context) => {
+  const found = await findMappingNote(context);
+  return found ? found.mappings : {};
+};
+
+const writeSharedMappings = async (context, mappings) => {
+  const markdown = renderSharedMappingsMarkdown(mappings);
+  const existing = await findMappingNote(context);
+  if (existing && existing.note) {
+    await context.notes.update(existing.note.id, { contentMarkdown: markdown });
+    return existing.note.id;
+  }
+  const notebooks = await context.notebooks.list();
+  const notebookId = notebooks && notebooks.length ? notebooks[0].id : "";
+  if (!notebookId) throw new Error("工作区里没有可用笔记本，无法保存发布记录");
+  const created = await context.notes.create({
+    notebookId,
+    title: MAPPING_NOTE_TITLE,
+    contentMarkdown: markdown,
+    tags: CONFIG_NOTE_TAGS,
+  });
+  return created.id;
+};
+
 const readSettings = async (context) => {
   const settings = {};
   for (const [field, fallback] of Object.entries(SETTING_DEFAULTS)) {
@@ -444,7 +505,14 @@ const createHaloClient = async (context, settings) => {
 
 const readMapping = async (context, noteId) => {
   const stored = await context.storage.get(STORAGE_KEYS.noteMapping(noteId));
-  return stored && typeof stored === "object" ? stored : null;
+  if (stored && typeof stored === "object") return stored;
+  const shared = await readSharedMappings(context);
+  const remote = shared && shared[noteId];
+  if (remote && typeof remote === "object") {
+    await context.storage.set(STORAGE_KEYS.noteMapping(noteId), remote).catch(() => undefined);
+    return remote;
+  }
+  return null;
 };
 
 const writeHistory = async (context, entry) => {
@@ -707,6 +775,13 @@ const publishNoteToHalo = async ({ context, halo, note, options, settings, log }
   };
   await context.storage.set(STORAGE_KEYS.noteMapping(note.id), entry);
   await writeHistory(context, entry);
+  try {
+    const sharedMappings = await readSharedMappings(context);
+    sharedMappings[note.id] = entry;
+    await writeSharedMappings(context, sharedMappings);
+  } catch (error) {
+    log(`发布记录同步到共享笔记失败：${error.message || error}（仅本设备可见）`);
+  }
   log(shouldPublish ? "发布完成" : "已保存为草稿");
   return entry;
 };

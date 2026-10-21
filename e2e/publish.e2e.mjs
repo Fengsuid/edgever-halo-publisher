@@ -26,10 +26,20 @@ const CONFIG = {
   pluginId: "com.twisterfeng.edgeever.halo-publisher",
   noteTitle: "Halo 插件发布测试",
   configNoteTitle: "Halo 发布配置",
+  mappingNoteTitle: "Halo 发布记录",
 };
 
 const log = (...args) => console.log(`[e2e ${new Date().toISOString().slice(11, 19)}]`, ...args);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const isVisibleWithin = async (locator, timeout) => {
+  try {
+    await locator.first().waitFor({ state: "visible", timeout });
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 let haloToken = "";
 let eeToken = "";
@@ -71,10 +81,13 @@ const listEdgeEverNotes = async () => {
   return (result.data && result.data.memos) || [];
 };
 
-const cleanupEdgeEverContent = async () => {
+const cleanupEdgeEverContent = async ({ includeTestNote = true } = {}) => {
   const notes = await listEdgeEverNotes().catch(() => []);
   for (const note of notes) {
-    if (note.title === CONFIG.noteTitle || note.title === CONFIG.configNoteTitle) {
+    const shouldRemove = note.title === CONFIG.configNoteTitle
+      || note.title === CONFIG.mappingNoteTitle
+      || (includeTestNote && note.title === CONFIG.noteTitle);
+    if (shouldRemove) {
       await eeFetch(`/api/v1/memos/${note.id}`, { method: "DELETE" });
       log("cleaned EdgeEver test note", note.title);
     }
@@ -116,13 +129,13 @@ const cleanupHaloContent = async () => {
 const dismissNotices = async (page) => {
   for (let attempt = 0; attempt < 4; attempt += 1) {
     const acknowledge = page.getByRole("button", { name: "知道了", exact: true });
-    if (await acknowledge.isVisible().catch(() => false)) {
+    if (await isVisibleWithin(acknowledge, 400)) {
       await acknowledge.click().catch(() => undefined);
       await sleep(350);
       continue;
     }
     await sleep(250);
-    if (!(await acknowledge.isVisible().catch(() => false))) break;
+    if (!(await isVisibleWithin(acknowledge, 400))) break;
   }
 };
 
@@ -141,30 +154,43 @@ const installPlugin = async (page) => {
   await installInput.fill(CONFIG.installSource);
   await page.getByRole("button", { name: "安装", exact: true }).click();
   await page.waitForFunction(() => document.body.innerText.includes("Halo 博客发布"), null, { timeout: 120000 });
+  await enablePlugin(page);
+};
+
+/** Enable the plugin on this device, acknowledging the community-plugin trust prompt. */
+const enablePlugin = async (page) => {
+  await page.goto(`${CONFIG.edgeeverUrl}/plugins`, { waitUntil: "domcontentloaded" });
   const toggle = page.locator('[aria-label="启用或停用 Halo 博客发布"]');
   await toggle.waitFor({ timeout: 30000 });
-  if ((await toggle.getAttribute("aria-checked")) !== "true") {
-    await toggle.click();
-    const trustDialog = page.locator('[role="dialog"]').filter({ hasText: "开启社区插件" });
-    if (await trustDialog.isVisible({ timeout: 10000 }).catch(() => false)) {
-      await page.getByRole("button", { name: "开启社区插件", exact: true }).click();
-    }
-    await page.locator('[role="dialog"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => undefined);
-    await sleep(2000);
+  const isChecked = async () => (await toggle.getAttribute("aria-checked")) === "true";
+  const trustConfirm = page.getByRole("button", { name: "开启社区插件", exact: true });
+
+  // Toggle through DOM clicks: the trust dialog opens synchronously from the
+  // switch handler and would otherwise intercept Playwright's actionability check.
+  if (await isChecked()) {
+    await toggle.evaluate((element) => element.click());
+    await sleep(800);
   }
-  // Make sure no blocking modal is left open before continuing.
-  for (let attempt = 0; attempt < 10; attempt += 1) {
-    const blocking = await page.locator('[data-state="open"][aria-hidden="true"]').count();
-    if (blocking === 0) break;
-    await page.keyboard.press("Escape").catch(() => undefined);
-    await sleep(400);
+  await toggle.evaluate((element) => element.click());
+  await sleep(500);
+  if (await isVisibleWithin(trustConfirm, 8000)) {
+    await trustConfirm.click();
+  }
+  await page.locator('[role="dialog"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => undefined);
+  await sleep(1200);
+  if (!(await isChecked())) {
+    await toggle.evaluate((element) => element.click());
+    await sleep(500);
+    if (await isVisibleWithin(trustConfirm, 8000)) await trustConfirm.click();
+    await page.locator('[role="dialog"]').first().waitFor({ state: "hidden", timeout: 15000 }).catch(() => undefined);
+    await sleep(1200);
   }
 };
 
 const openPanel = async (page, { expectSetup = false } = {}) => {
   await page.locator('[aria-label="插件"]').click();
   const entry = page.getByRole("menuitem", { name: "Halo 博客发布", exact: true }).first();
-  await entry.waitFor({ timeout: 15000 });
+  await entry.waitFor({ timeout: 20000 });
   await entry.click();
   await page.waitForSelector(".hp", { timeout: 30000 });
   if (expectSetup) {
@@ -196,7 +222,7 @@ const main = async () => {
   if (!haloToken) throw new Error("missing Halo PAT");
   if (!CONFIG.password) throw new Error("missing EE_PASS");
   await eeLogin();
-  await cleanupEdgeEverContent();
+  await cleanupEdgeEverContent({ includeTestNote: false });
   await cleanupHaloContent();
 
   const browser = await chromium.launch({
@@ -237,14 +263,27 @@ const main = async () => {
     await page.screenshot({ path: join(SHOTS, "02-plugin-installed.png") });
     log("plugin installed from", CONFIG.installSource);
 
+    await page.goto(`${CONFIG.edgeeverUrl}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('[aria-label="插件"]', { timeout: 30000 });
     await openPanel(page, { expectSetup: true });
     await page.locator(".hp-setup input.hp-input").first().fill(CONFIG.haloUrl);
     await page.locator(".hp-setup input.hp-input").nth(1).fill(haloToken);
     await page.screenshot({ path: join(SHOTS, "03-panel-setup.png") });
     await page.getByRole("button", { name: "保存并同步到所有设备", exact: true }).click();
-    await page.waitForSelector('.hp-dot[data-state="ok"]', { timeout: 60000 });
-    await page.screenshot({ path: join(SHOTS, "04-panel-connected-shared-config.png") });
+    await sleep(2500);
+    await dismissNotices(page);
     results.sharedConfigSaved = true;
+
+    // The host can close plugin panels while the workspace re-renders after a
+    // note is created; reload the workspace and confirm the panel now connects
+    // purely from the shared config note.
+    await page.goto(`${CONFIG.edgeeverUrl}/`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector('[aria-label="插件"]', { timeout: 30000 });
+    await openPanel(page);
+    const sharedSource = await page.locator(".hp-bar-site").innerText();
+    results.sharedConfigSource = sharedSource;
+    if (!sharedSource.includes("共享笔记")) throw new Error(`panel did not use shared config: ${sharedSource}`);
+    await page.screenshot({ path: join(SHOTS, "04-panel-connected-shared-config.png") });
 
     const notes = await listEdgeEverNotes();
     const configNote = notes.find((note) => note.title === CONFIG.configNoteTitle);
@@ -277,12 +316,25 @@ const main = async () => {
       results.uploadedImageStatus = imageResponse.status;
     }
     results.firstPublishVerified = true;
+
+    const notesAfterPublish = await listEdgeEverNotes();
+    const mappingNote = notesAfterPublish.find((note) => note.title === CONFIG.mappingNoteTitle);
+    if (!mappingNote) throw new Error("shared publish-mapping note was not created");
+    const mappingDetail = await eeFetch(`/api/v1/memos/${mappingNote.id}`);
+    const mappingMarkdown = (mappingDetail.data && mappingDetail.data.memo && mappingDetail.data.memo.contentMarkdown) || "";
+    results.mappingNoteCreated = true;
+    results.mappingNoteHasPost = /"postName"\s*:/.test(mappingMarkdown);
+    log("shared publish-mapping note created:", mappingNote.id);
+
     await device1.context.close();
     log("device 1 published", articleUrl);
 
     /* ---------- device 2: no setup needed (config from synced note) ---------- */
     const device2 = await newDevice();
     const page2 = device2.page;
+    await enablePlugin(page2);
+    await page2.goto(`${CONFIG.edgeeverUrl}/`, { waitUntil: "domcontentloaded" });
+    await page2.waitForSelector('[aria-label="插件"]', { timeout: 30000 });
     await openPanel(page2);
     const sourceText = await page2.locator(".hp-bar-site").innerText();
     results.device2ConfigSource = sourceText;
