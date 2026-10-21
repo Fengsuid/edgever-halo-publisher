@@ -1,0 +1,108 @@
+{
+  "type": "plugin",
+  "id": "com.twisterfeng.edgeever.halo-publisher",
+  "name": "Halo 博客发布",
+  "version": "1.1.0",
+  "apiVersion": "2",
+  "settingsUi": "host",
+  "description": "把 EdgeEver 笔记一键发布或更新到 Halo 2 博客：支持草稿/直接发布、分类、标签、图片自动上传、发布映射记录，并可把连接配置保存为一篇工作区笔记，随服务器同步到所有设备。",
+  "locales": {
+    "zh-CN": {
+      "name": "Halo 博客发布",
+      "description": "把 EdgeEver 笔记一键发布或更新到 Halo 2 博客：支持草稿/直接发布、分类、标签、图片自动上传、发布映射记录，并可把连接配置保存为一篇工作区笔记，随服务器同步到所有设备。"
+    },
+    "en-US": {
+      "name": "Halo Publisher",
+      "description": "Publish or update EdgeEver notes on a Halo 2 blog with drafts, categories, tags, automatic image upload and cross-device shared configuration."
+    }
+  },
+  "entry": "./main.js",
+  "platforms": [
+    "web",
+    "desktop"
+  ],
+  "permissions": [
+    "notes:read",
+    "resources:read",
+    "ui:commands",
+    "ui:notices",
+    "ui:panels",
+    "network",
+    "secrets",
+    "storage",
+    "notes:write",
+    "metadata:read"
+  ],
+  "settings": {
+    "fields": [
+      {
+        "key": "halo_url",
+        "type": "text",
+        "label": "Halo 站点地址",
+        "description": "例如 https://blog.example.com（不要带结尾斜杠）",
+        "required": true,
+        "placeholder": "https://blog.example.com"
+      },
+      {
+        "key": "token",
+        "type": "secret",
+        "label": "Halo 个人令牌 (PAT)",
+        "description": "在 Halo 后台「个人中心 → 个人令牌」生成，需要超级管理员角色",
+        "required": true,
+        "placeholder": "pat_..."
+      },
+      {
+        "key": "default_status",
+        "type": "select",
+        "label": "默认发布状态",
+        "default": "published",
+        "options": [
+          {
+            "value": "published",
+            "label": "直接发布"
+          },
+          {
+            "value": "draft",
+            "label": "保存为草稿"
+          }
+        ]
+      },
+      {
+        "key": "use_note_tags",
+        "type": "boolean",
+        "label": "同步笔记标签到博客标签",
+        "description": "发布时自动创建不存在的 Halo 标签并关联",
+        "default": true
+      },
+      {
+        "key": "upload_images",
+        "type": "boolean",
+        "label": "自动上传笔记图片到 Halo",
+        "description": "把笔记里的本地图片转存到 Halo 附件存储，并替换为公开链接",
+        "default": true
+      },
+      {
+        "key": "slug_mode",
+        "type": "select",
+        "label": "文章链接（slug）生成方式",
+        "default": "title",
+        "options": [
+          {
+            "value": "title",
+            "label": "按标题生成"
+          },
+          {
+            "value": "title-id",
+            "label": "标题 + 笔记短 ID（更不容易重复）"
+          }
+        ]
+      },
+      {
+        "key": "open_after_publish",
+        "type": "boolean",
+        "label": "发布成功后打开文章",
+        "default": true
+      }
+    ]
+  }
+}
