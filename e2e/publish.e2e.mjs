@@ -32,6 +32,17 @@ const CONFIG = {
 const log = (...args) => console.log(`[e2e ${new Date().toISOString().slice(11, 19)}]`, ...args);
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const findHaloTestPost = async () => {
+  const listed = await haloFetch("/apis/content.halo.run/v1alpha1/posts?page=0&size=200");
+  const posts = (listed.data && listed.data.items) || [];
+  return posts.find((post) => {
+    const title = (post && post.spec && post.spec.title) || "";
+    return title.startsWith(CONFIG.noteTitle) && !post.spec.deleted;
+  }) || null;
+};
+
+const bustCache = (url) => `${url}${url.includes("?") ? "&" : "?"}e2e=${Date.now()}`;
+
 const isVisibleWithin = async (locator, timeout) => {
   try {
     await locator.first().waitFor({ state: "visible", timeout });
@@ -368,8 +379,17 @@ const main = async () => {
       { timeout: 180000 },
     );
     await dismissNotices(page2);
-    results.draftUnpublishStatus = (await fetch(articleUrl2, { redirect: "manual" })).status;
-    if (results.draftUnpublishStatus === 200) throw new Error("article still public after draft");
+    // Assert on Halo's state: the article must be marked unpublished. The public
+    // URL behaviour depends on the active theme, so it is only recorded.
+    results.draftPublishFlag = null;
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      const post = await findHaloTestPost();
+      results.draftPublishFlag = post && post.spec ? post.spec.publish : null;
+      if (results.draftPublishFlag === false) break;
+      await sleep(800);
+    }
+    results.draftUnpublishStatus = (await fetch(bustCache(articleUrl2), { redirect: "manual", cache: "no-store" })).status;
+    if (results.draftPublishFlag !== false) throw new Error("Halo post is still marked published after draft");
     await page2.locator('.hp-detail select[data-field="status"]').selectOption("published");
     await page2.getByRole("button", { name: "更新已发布文章", exact: true }).click();
     await page2.waitForFunction(
@@ -378,8 +398,21 @@ const main = async () => {
       { timeout: 180000 },
     );
     await dismissNotices(page2);
-    results.republishStatus = (await fetch(articleUrl2)).status;
-    results.draftRoundTripVerified = results.republishStatus === 200;
+    results.republishPublishFlag = null;
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      const post = await findHaloTestPost();
+      results.republishPublishFlag = post && post.spec ? post.spec.publish : null;
+      if (results.republishPublishFlag === true) break;
+      await sleep(800);
+    }
+    results.republishStatus = 0;
+    for (let attempt = 0; attempt < 15; attempt += 1) {
+      results.republishStatus = (await fetch(bustCache(articleUrl2), { cache: "no-store" })).status;
+      if (results.republishStatus === 200) break;
+      await sleep(800);
+    }
+    results.draftRoundTripVerified = results.republishPublishFlag === true && results.republishStatus === 200;
+    if (!results.draftRoundTripVerified) throw new Error("draft round-trip did not republish the article");
     await page2.screenshot({ path: join(SHOTS, "08-panel-draft-roundtrip.png") });
 
     /* ---------- public page screenshot ---------- */
