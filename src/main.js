@@ -923,16 +923,16 @@ const mountPanel = (context, container) => {
   const actions = el("div", "hp-actions");
   const publishButton = el("button", "hp-btn hp-btn-primary", "发布到 Halo");
   publishButton.type = "button";
-  const draftButton = el("button", "hp-btn", "保存为草稿");
-  draftButton.type = "button";
   const mappingHint = el("span", "hp-hint");
-  actions.append(publishButton, draftButton, mappingHint);
+  actions.append(publishButton, mappingHint);
+  const statusHint = el("div", "hp-hint hp-status-hint");
+  statusHint.hidden = true;
 
   const logBox = el("div", "hp-log");
   logBox.hidden = true;
   const resultBox = el("div", "hp-result");
   resultBox.hidden = true;
-  detail.append(detailHead, warnBox, grid, newCategoryRow, actions, logBox, resultBox);
+  detail.append(detailHead, warnBox, grid, newCategoryRow, actions, statusHint, logBox, resultBox);
   const detailEmpty = el("div", "hp-empty", "选择一篇笔记开始发布");
 
   main.append(pickRow, notesBox, emptyBox, detail);
@@ -961,17 +961,35 @@ const mountPanel = (context, container) => {
   const showResult = (entry) => {
     resultBox.hidden = false;
     resultBox.replaceChildren();
-    resultBox.append(el("span", null, entry.published ? "已发布：" : "已保存草稿："));
-    const link = el("a", null, entry.permalink);
-    link.href = entry.permalink;
-    link.target = "_blank";
-    link.rel = "noreferrer noopener";
-    resultBox.append(link);
-    const copy = el("button", "hp-link", "复制链接");
+    if (entry.published) {
+      resultBox.append(el("span", null, "已发布："));
+      const link = el("a", null, entry.permalink);
+      link.href = entry.permalink;
+      link.target = "_blank";
+      link.rel = "noreferrer noopener";
+      resultBox.append(link);
+      const copy = el("button", "hp-link", "复制链接");
+      copy.type = "button";
+      copy.addEventListener("click", () => {
+        void navigator.clipboard
+          ?.writeText(entry.permalink)
+          .then(() => context.ui.showNotice("链接已复制"))
+          .catch(() => context.ui.showNotice("复制失败，请手动复制"));
+      });
+      resultBox.append(copy);
+      return;
+    }
+    resultBox.append(el("span", null, "已保存为草稿（未公开）："));
+    const consoleLink = el("a", null, "在 Halo 后台打开草稿");
+    consoleLink.href = entry.consoleUrl;
+    consoleLink.target = "_blank";
+    consoleLink.rel = "noreferrer noopener";
+    resultBox.append(consoleLink);
+    const copy = el("button", "hp-link", "复制后台链接");
     copy.type = "button";
     copy.addEventListener("click", () => {
       void navigator.clipboard
-        ?.writeText(entry.permalink)
+        ?.writeText(entry.consoleUrl)
         .then(() => context.ui.showNotice("链接已复制"))
         .catch(() => context.ui.showNotice("复制失败，请手动复制"));
     });
@@ -982,16 +1000,25 @@ const mountPanel = (context, container) => {
     warnBox.textContent = message || "";
   };
   const syncPublishLabels = () => {
+    const draft = statusSelect.value === "draft";
     const hasMapping = Boolean(
       state.selectedMapping && state.halo && state.selectedMapping.haloUrl === state.halo.baseUrl,
     );
-    publishButton.textContent = hasMapping ? "更新已发布文章" : "发布到 Halo";
-    draftButton.textContent = hasMapping ? "更新并保存草稿" : "保存为草稿";
+    publishButton.textContent = hasMapping
+      ? (draft ? "更新并保存为草稿" : "更新已发布文章")
+      : (draft ? "保存为草稿" : "发布到 Halo");
+    statusHint.hidden = !draft;
+    if (draft) {
+      statusHint.textContent = hasMapping
+        ? "保存为草稿会同时撤回已发布文章：公开链接将失效，内容只保留在 Halo 后台。"
+        : "草稿只在 Halo 后台可见，不会出现在博客列表，也无法通过链接公开访问。";
+    } else {
+      statusHint.textContent = "";
+    }
   };
   const setBusy = (busy, publishing = false) => {
     state.publishing = publishing;
     publishButton.disabled = busy;
-    draftButton.disabled = busy;
     setupSaveButton.disabled = busy;
     setupLocalButton.disabled = busy;
     if (publishing) publishButton.textContent = "正在发布…";
@@ -1130,7 +1157,7 @@ const mountPanel = (context, container) => {
     resultBox.hidden = true;
     mappingHint.textContent = "";
     publishButton.disabled = Boolean(unsupported);
-    draftButton.disabled = Boolean(unsupported);
+    syncPublishLabels();
   };
 
   const refreshMappingHint = async (note) => {
@@ -1153,7 +1180,12 @@ const mountPanel = (context, container) => {
     }
     syncPublishLabels();
     slugInput.value = mapping.slug || "";
-    mappingHint.textContent = `将更新已有文章（${formatTime(mapping.updatedAt)}）`;
+    const editedAfterPublish = Boolean(
+      note.updatedAt && mapping.updatedAt && Date.parse(note.updatedAt) > Date.parse(mapping.updatedAt) + 1000,
+    );
+    mappingHint.textContent = editedAfterPublish
+      ? `笔记有修改，点击按钮即可更新（上次发布 ${formatTime(mapping.updatedAt)}）`
+      : `将更新已有文章（${formatTime(mapping.updatedAt)}）`;
   };
 
   const selectNote = async (note) => {
@@ -1404,8 +1436,8 @@ const mountPanel = (context, container) => {
     newCategoryRow.hidden = categorySelect.value !== "__new__";
     if (!newCategoryRow.hidden) newCategoryInput.focus();
   });
-  on(publishButton, "click", () => void runPublish("published"));
-  on(draftButton, "click", () => void runPublish("draft"));
+  on(statusSelect, "change", () => syncPublishLabels());
+  on(publishButton, "click", () => void runPublish(statusSelect.value === "draft" ? "draft" : "published"));
 
   /* ---------------- boot ---------------- */
 

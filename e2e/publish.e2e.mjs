@@ -372,7 +372,7 @@ const main = async () => {
 
     /* ---------- draft round-trip on device 2 ---------- */
     await page2.locator('.hp-detail select[data-field="status"]').selectOption("draft");
-    await page2.getByRole("button", { name: "更新并保存草稿", exact: true }).click();
+    await page2.getByRole("button", { name: "更新并保存为草稿", exact: true }).click();
     await page2.waitForFunction(
       () => (document.querySelector(".hp-log")?.textContent || "").includes("已保存为草稿"),
       null,
@@ -390,6 +390,7 @@ const main = async () => {
     }
     results.draftUnpublishStatus = (await fetch(bustCache(articleUrl2), { redirect: "manual", cache: "no-store" })).status;
     if (results.draftPublishFlag !== false) throw new Error("Halo post is still marked published after draft");
+    if (results.draftUnpublishStatus === 200) throw new Error("draft article is still publicly readable");
     await page2.locator('.hp-detail select[data-field="status"]').selectOption("published");
     await page2.getByRole("button", { name: "更新已发布文章", exact: true }).click();
     await page2.waitForFunction(
@@ -412,6 +413,9 @@ const main = async () => {
       await sleep(800);
     }
     results.draftRoundTripVerified = results.republishPublishFlag === true && results.republishStatus === 200;
+    const draftResultText = await page2.locator(".hp-result").innerText();
+    results.draftResultText = draftResultText;
+    if (!draftResultText.includes("草稿")) throw new Error("draft result message missing");
     if (!results.draftRoundTripVerified) throw new Error("draft round-trip did not republish the article");
     await page2.screenshot({ path: join(SHOTS, "08-panel-draft-roundtrip.png") });
 
