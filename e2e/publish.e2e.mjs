@@ -33,8 +33,8 @@ const log = (...args) => console.log(`[e2e ${new Date().toISOString().slice(11, 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const findHaloTestPost = async () => {
-  const listed = await haloFetch("/apis/content.halo.run/v1alpha1/posts?page=0&size=200");
-  const posts = (listed.data && listed.data.items) || [];
+  const listed = await haloFetch("/apis/api.console.halo.run/v1alpha1/posts?page=0&size=200&sort=metadata.creationTimestamp,desc");
+  const posts = ((listed.data && listed.data.items) || []).map(unwrapHaloPost);
   return posts.find((post) => {
     const title = (post && post.spec && post.spec.title) || "";
     return title.startsWith(CONFIG.noteTitle) && !post.spec.deleted;
@@ -105,9 +105,11 @@ const cleanupEdgeEverContent = async ({ includeTestNote = true } = {}) => {
   }
 };
 
+const unwrapHaloPost = (item) => (item && item.post) || item || {};
+
 const cleanupHaloContent = async () => {
   const listed = await haloFetch("/apis/api.console.halo.run/v1alpha1/posts?page=0&size=200");
-  const posts = (listed.data && listed.data.items) || [];
+  const posts = ((listed.data && listed.data.items) || []).map(unwrapHaloPost);
   const targets = posts.filter((post) => {
     const title = (post && post.spec && post.spec.title) || "";
     const slug = (post && post.spec && post.spec.slug) || "";
@@ -391,6 +393,9 @@ const main = async () => {
     results.draftUnpublishStatus = (await fetch(bustCache(articleUrl2), { redirect: "manual", cache: "no-store" })).status;
     if (results.draftPublishFlag !== false) throw new Error("Halo post is still marked published after draft");
     if (results.draftUnpublishStatus === 200) throw new Error("draft article is still publicly readable");
+    const draftResultText = await page2.locator(".hp-result").innerText();
+    results.draftResultText = draftResultText;
+    if (!draftResultText.includes("草稿")) throw new Error("draft result message missing");
     await page2.locator('.hp-detail select[data-field="status"]').selectOption("published");
     await page2.getByRole("button", { name: "更新已发布文章", exact: true }).click();
     await page2.waitForFunction(
@@ -413,9 +418,6 @@ const main = async () => {
       await sleep(800);
     }
     results.draftRoundTripVerified = results.republishPublishFlag === true && results.republishStatus === 200;
-    const draftResultText = await page2.locator(".hp-result").innerText();
-    results.draftResultText = draftResultText;
-    if (!draftResultText.includes("草稿")) throw new Error("draft result message missing");
     if (!results.draftRoundTripVerified) throw new Error("draft round-trip did not republish the article");
     await page2.screenshot({ path: join(SHOTS, "08-panel-draft-roundtrip.png") });
 
